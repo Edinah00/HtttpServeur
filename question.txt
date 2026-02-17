@@ -1,0 +1,2 @@
+Pourquoi ne pas mettre dans cache les fichiers php
+pourquoi phpcgi

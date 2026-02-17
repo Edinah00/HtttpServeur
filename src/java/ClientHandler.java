@@ -8,11 +8,13 @@ public class ClientHandler implements Runnable {
     private final Socket socketClient;
     private final String racineDocuments;
     private final Logger journaliseur;
+    private final CacheMemoire cache;
     
-    public ClientHandler(Socket socket, String racineDocuments, Logger journaliseur) {
+    public ClientHandler(Socket socket, String racineDocuments, Logger journaliseur, CacheMemoire cache) {
         this.socketClient = socket;
         this.racineDocuments = racineDocuments;
         this.journaliseur = journaliseur;
+        this.cache = cache;
     }
     
     @Override
@@ -112,15 +114,24 @@ public class ClientHandler implements Runnable {
         if (chemin.contains("..")) {
             return new HttpResponse(403, "Forbidden");
         }
-        
+                
         // Chemin par defaut
         if (chemin.equals("/")) {
-            chemin = "/index.html";
+            chemin = "/index.php";  // Essayer PHP d'abord
+            Path cheminPhp = Paths.get(racineDocuments, chemin);
+            if (!Files.exists(cheminPhp)) {
+                chemin = "/index.html";  // Sinon HTML
+            }
         }
-        
-        // Si le chemin se termine par /, chercher index.html dans ce dossier
+
+        // Si le chemin se termine par /, chercher index.php puis index.html
         if (chemin.endsWith("/")) {
-            chemin = chemin + "index.html";
+            Path cheminPhp = Paths.get(racineDocuments, chemin + "index.php");
+            if (Files.exists(cheminPhp)) {
+                chemin = chemin + "index.php";
+            } else {
+                chemin = chemin + "index.html";
+            }
         }
         
         Path cheminFichier = Paths.get(racineDocuments, chemin);
@@ -145,27 +156,58 @@ public class ClientHandler implements Runnable {
                 return new HttpResponse(403, "Forbidden");
             }
             
-            byte[] contenu = Files.readAllBytes(cheminFichier);
-            String typeContenu = obtenirTypeContenu(cheminFichier.toString());
+            String cheminAbsolu = cheminFichier.toAbsolutePath().toString();
+            String nomFichier = cheminFichier.getFileName().toString();
             
-            HttpResponse reponse = new HttpResponse(200, "OK");
-            reponse.definirTypeContenu(typeContenu);
-            reponse.definirCorps(contenu);
-            
-            return reponse;
+            // Vérifier si le fichier doit être mis en cache
+            if (CacheMemoire.doitEtreMisEnCache(cheminAbsolu)) {
+                // Essayer de récupérer depuis le cache
+                CacheMemoire.EntreeCache entreeCache = cache.obtenir(cheminAbsolu);
+                
+                if (entreeCache != null) {
+                    System.out.println("[CACHE HIT] ✓ " + nomFichier + " - Servi depuis le cache (RAM)");
+                    HttpResponse reponse = new HttpResponse(200, "OK");
+                    reponse.definirTypeContenu(entreeCache.getTypeMime());
+                    reponse.definirCorps(entreeCache.getContenu());
+                    return reponse;
+                }
+                
+                System.out.println("[CACHE MISS] ✗ " + nomFichier + " - Lecture depuis le disque + mise en cache");
+                byte[] contenu = Files.readAllBytes(cheminFichier);
+                String typeContenu = obtenirTypeContenu(cheminFichier.toString());
+                long dateModification = Files.getLastModifiedTime(cheminFichier).toMillis();
+                
+                cache.ajouter(cheminAbsolu, contenu, typeContenu, dateModification);
+                
+                HttpResponse reponse = new HttpResponse(200, "OK");
+                reponse.definirTypeContenu(typeContenu);
+                reponse.definirCorps(contenu);
+                
+                return reponse;
+            } else {
+                // Fichier ne doit pas être mis en cache - lecture directe
+                byte[] contenu = Files.readAllBytes(cheminFichier);
+                String typeContenu = obtenirTypeContenu(cheminFichier.toString());
+                
+                HttpResponse reponse = new HttpResponse(200, "OK");
+                reponse.definirTypeContenu(typeContenu);
+                reponse.definirCorps(contenu);
+                
+                return reponse;
+            }
             
         } catch (IOException e) {
             return new HttpResponse(500, "Internal Server Error");
         }
     }
     
-    // Execute un script PHP via php-cgi
+    // Execute un script PHP via le module PHP interne
     private HttpResponse traiterRequetePhp(Path cheminFichier, HttpRequest requete, String chaineQuery) {
         if (!Files.exists(cheminFichier)) {
             return new HttpResponse(404, "Not Found");
         }
         
-        PhpCgiHandler gestionnairePhp = new PhpCgiHandler();
+        PhpHandler gestionnairePhp = new PhpHandler();
         try {
             String sortie = gestionnairePhp.executer(
                 cheminFichier.toAbsolutePath().toString(),
@@ -181,6 +223,7 @@ public class ClientHandler implements Runnable {
             return reponse;
             
         } catch (Exception e) {
+            System.err.println("Erreur execution PHP: " + e.getMessage());
             return new HttpResponse(500, "Internal Server Error");
         }
     }

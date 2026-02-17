@@ -1,23 +1,26 @@
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-public class PhpCgiHandler {
-    private static final String COMMANDE_PHP_CGI = "php-cgi";
+public class PhpHandler {
+    private static final String COMMANDE_PHP = "php";
     
-    // Execute un script PHP via l'interface CGI
+    // Execute un script PHP via le module PHP interne
     public String executer(String cheminScript, String methode, String chaineQuery, String corps) 
             throws Exception {
         
-        ProcessBuilder constructeurProcessus = new ProcessBuilder(COMMANDE_PHP_CGI, cheminScript);
-        
-        // Preparation des variables d'environnement CGI
-        String[] environnement = constructeurProcessus.environment().keySet().toArray(new String[0]);
-        for (String cle : environnement) {
-            constructeurProcessus.environment().remove(cle);
+        // Lire le contenu du script PHP
+        Path scriptPath = Path.of(cheminScript);
+        if (!Files.exists(scriptPath)) {
+            throw new FileNotFoundException("Script PHP introuvable: " + cheminScript);
         }
         
+        // Construire la commande PHP
+        ProcessBuilder constructeurProcessus = new ProcessBuilder(COMMANDE_PHP, cheminScript);
+        
+        // Configurer les variables d'environnement pour simuler une requête HTTP
         constructeurProcessus.environment().put("REQUEST_METHOD", methode);
         constructeurProcessus.environment().put("SCRIPT_FILENAME", cheminScript);
-        constructeurProcessus.environment().put("REDIRECT_STATUS", "200");
         
         if (chaineQuery != null && !chaineQuery.isEmpty()) {
             constructeurProcessus.environment().put("QUERY_STRING", chaineQuery);
@@ -28,9 +31,10 @@ public class PhpCgiHandler {
             constructeurProcessus.environment().put("CONTENT_TYPE", "application/x-www-form-urlencoded");
         }
         
+        // Démarrer le processus PHP
         Process processus = constructeurProcessus.start();
         
-        // Envoyer le corps de la requete pour POST
+        // Envoyer le corps de la requête pour POST via stdin
         if ("POST".equalsIgnoreCase(methode) && corps != null) {
             OutputStream entreePHP = processus.getOutputStream();
             entreePHP.write(corps.getBytes());
@@ -38,17 +42,22 @@ public class PhpCgiHandler {
             entreePHP.close();
         }
         
-        // Lire la sortie de php-cgi
+        // Lire la sortie du script PHP
         String sortie = lireFlux(processus.getInputStream());
+        String erreurs = lireFlux(processus.getErrorStream());
         
         // Attendre la fin du processus
-        processus.waitFor();
+        int codeRetour = processus.waitFor();
         
-        // Extraire le contenu HTML de la sortie CGI
-        return extraireContenuHtml(sortie);
+        // Si erreur, afficher les messages d'erreur
+        if (codeRetour != 0 && !erreurs.isEmpty()) {
+            System.err.println("Erreur PHP: " + erreurs);
+        }
+        
+        return sortie;
     }
     
-    // Lit le contenu d'un flux d'entree
+    // Lit le contenu d'un flux d'entrée
     private String lireFlux(InputStream flux) throws IOException {
         BufferedReader lecteur = new BufferedReader(new InputStreamReader(flux));
         StringBuilder constructeur = new StringBuilder();
@@ -59,20 +68,5 @@ public class PhpCgiHandler {
         }
         
         return constructeur.toString();
-    }
-    
-    // Extrait le contenu HTML apres les en-tetes CGI
-    private String extraireContenuHtml(String sortieCgi) {
-        int indexSeparateur = sortieCgi.indexOf("\n\n");
-        if (indexSeparateur != -1) {
-            return sortieCgi.substring(indexSeparateur + 2);
-        }
-        
-        indexSeparateur = sortieCgi.indexOf("\r\n\r\n");
-        if (indexSeparateur != -1) {
-            return sortieCgi.substring(indexSeparateur + 4);
-        }
-        
-        return sortieCgi;
     }
 }

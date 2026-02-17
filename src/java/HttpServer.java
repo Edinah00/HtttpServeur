@@ -7,11 +7,13 @@ public class HttpServer {
     private final String racineDocuments;
     private ServerSocket socketServeur;
     private final Logger journaliseur;
+    private final CacheMemoire cache;
     
     public HttpServer(int port, String racineDocuments) {
         this.port = port;
         this.racineDocuments = racineDocuments;
         this.journaliseur = new Logger("serveur.log");
+        this.cache = new CacheMemoire(); // Cache par dÃ©faut : 100 entrÃ©es, 50 MB, 5 min TTL
     }
     
     // Demarre le serveur et ecoute les connexions entrantes
@@ -29,7 +31,7 @@ public class HttpServer {
             while (true) {
                 Socket socketClient = socketServeur.accept();
                 System.out.println("Nouvelle connexion: " + socketClient.getInetAddress().getHostAddress());
-                ClientHandler gestionnaire = new ClientHandler(socketClient, racineDocuments, journaliseur);
+                ClientHandler gestionnaire = new ClientHandler(socketClient, racineDocuments, journaliseur, cache);
                 Thread thread = new Thread(gestionnaire);
                 thread.start();
             }
@@ -56,6 +58,22 @@ public class HttpServer {
         }
     }
     
+    // Affiche les statistiques du cache
+    public void afficherStatistiquesCache() {
+        cache.afficherStatistiques();
+    }
+    
+    // Vide le cache
+    public void viderCache() {
+        cache.vider();
+        System.out.println("Cache vidÃ©.");
+    }
+    
+    // Retourne l'instance du cache
+    public CacheMemoire getCache() {
+        return cache;
+    }
+    
     public static void main(String[] args) {
         int port = 8888;
         String racineDocuments = "www";
@@ -73,6 +91,12 @@ public class HttpServer {
         
         System.out.println("Tentative de demarrage sur le port " + port);
         HttpServer serveur = new HttpServer(port, racineDocuments);
+        
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\n\n========== ARRET DU SERVEUR ==========");
+            serveur.afficherStatistiquesCache();
+        }));
+        
         serveur.demarrer();
     }
 }

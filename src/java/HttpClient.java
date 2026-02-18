@@ -4,17 +4,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public class ClientHandler implements Runnable {
+public class HttpClient implements Runnable {
     private final Socket socketClient;
     private final String racineDocuments;
     private final Logger journaliseur;
     private final CacheMemoire cache;
+    private final GestionSession gestionSession;
     
-    public ClientHandler(Socket socket, String racineDocuments, Logger journaliseur, CacheMemoire cache) {
+    public HttpClient(Socket socket, String racineDocuments, Logger journaliseur, CacheMemoire cache, GestionSession gestionSession) {
         this.socketClient = socket;
         this.racineDocuments = racineDocuments;
         this.journaliseur = journaliseur;
         this.cache = cache;
+        this.gestionSession = gestionSession;
     }
     
     @Override
@@ -32,6 +34,19 @@ public class ClientHandler implements Runnable {
                 return;
             }
             
+            // Gérer la session
+            String sessionId = extraireCookieSession(requete);
+            GestionSession.Session session = null;
+            
+            if (sessionId != null) {
+                session = gestionSession.obtenirSession(sessionId);
+            }
+            
+            if (session == null) {
+                // Créer une nouvelle session
+                session = gestionSession.creerSession();
+            }
+            
             journaliseur.enregistrer(
                 socketClient.getInetAddress().getHostAddress(),
                 requete.obtenirMethode(),
@@ -40,6 +55,10 @@ public class ClientHandler implements Runnable {
             );
             
             HttpResponse reponse = traiterRequete(requete);
+            
+            // Ajouter le cookie de session
+            reponse.ajouterEntete("Set-Cookie", "SESSIONID=" + session.getId() + "; Path=/; HttpOnly");
+            
             envoyerReponse(sortie, reponse);
             
             journaliseur.mettreAJourDernierCode(reponse.obtenirCodeStatut());
@@ -53,6 +72,25 @@ public class ClientHandler implements Runnable {
                 System.err.println("Erreur fermeture socket: " + e.getMessage());
             }
         }
+    }
+    
+    // Extrait l'ID de session depuis le cookie
+    private String extraireCookieSession(HttpRequest requete) {
+        String cookieHeader = requete.obtenirEntete("Cookie");
+        if (cookieHeader == null) {
+            return null;
+        }
+        
+        // Chercher SESSIONID dans les cookies
+        String[] cookies = cookieHeader.split(";");
+        for (String cookie : cookies) {
+            cookie = cookie.trim();
+            if (cookie.startsWith("SESSIONID=")) {
+                return cookie.substring("SESSIONID=".length());
+            }
+        }
+        
+        return null;
     }
     
     // Analyse la requete HTTP recue du client
@@ -209,11 +247,15 @@ public class ClientHandler implements Runnable {
         
         PhpHandler gestionnairePhp = new PhpHandler();
         try {
+            // Récupérer les cookies depuis la requête
+            String cookies = requete.obtenirEntete("Cookie");
+            
             String sortie = gestionnairePhp.executer(
                 cheminFichier.toAbsolutePath().toString(),
                 requete.obtenirMethode(),
                 chaineQuery,
-                requete.obtenirCorps()
+                requete.obtenirCorps(),
+                cookies
             );
             
             HttpResponse reponse = new HttpResponse(200, "OK");
@@ -259,10 +301,16 @@ public class ClientHandler implements Runnable {
         writer.print("HTTP/1.0 " + reponse.obtenirCodeStatut() + " " + 
                      reponse.obtenirMessageStatut() + "\r\n");
         
-        // En-tetes
+        // En-tetes standards
         writer.print("Content-Type: " + reponse.obtenirTypeContenu() + "\r\n");
         writer.print("Content-Length: " + reponse.obtenirLongueurContenu() + "\r\n");
         writer.print("Connection: close\r\n");
+        
+        // En-têtes personnalisés (comme Set-Cookie)
+        for (java.util.Map.Entry<String, String> entete : reponse.obtenirEntetes().entrySet()) {
+            writer.print(entete.getKey() + ": " + entete.getValue() + "\r\n");
+        }
+        
         writer.print("\r\n");
         writer.flush();
         

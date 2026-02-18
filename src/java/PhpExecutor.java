@@ -2,11 +2,11 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class PhpHandler {
+public class PhpExecutor {
     private static final String COMMANDE_PHP = "php";
     
     // Execute un script PHP via le module PHP interne
-    public String executer(String cheminScript, String methode, String chaineQuery, String corps) 
+    public String executer(String cheminScript, String methode, String chaineQuery, String corps, String cookies) 
             throws Exception {
         
         // Lire le contenu du script PHP
@@ -29,6 +29,11 @@ public class PhpHandler {
         if ("POST".equalsIgnoreCase(methode) && corps != null) {
             constructeurProcessus.environment().put("CONTENT_LENGTH", String.valueOf(corps.length()));
             constructeurProcessus.environment().put("CONTENT_TYPE", "application/x-www-form-urlencoded");
+        }
+        
+        // Ajouter les cookies HTTP
+        if (cookies != null && !cookies.isEmpty()) {
+            constructeurProcessus.environment().put("HTTP_COOKIE", cookies);
         }
         
         // Démarrer le processus PHP

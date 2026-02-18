@@ -2,11 +2,11 @@ import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-public class Logger {
+public class ServerLogger {
     private final String cheminFichier;
     private int dernierCodeReponse;
     
-    public Logger(String cheminFichier) {
+    public ServerLogger(String cheminFichier) {
         this.cheminFichier = cheminFichier;
         this.dernierCodeReponse = 0;
     }

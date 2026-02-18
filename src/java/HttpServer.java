@@ -8,12 +8,14 @@ public class HttpServer {
     private ServerSocket socketServeur;
     private final Logger journaliseur;
     private final CacheMemoire cache;
+    private final GestionSession gestionSession;
     
     public HttpServer(int port, String racineDocuments) {
         this.port = port;
         this.racineDocuments = racineDocuments;
         this.journaliseur = new Logger("serveur.log");
-        this.cache = new CacheMemoire(); // Cache par dÃ©faut : 100 entrÃ©es, 50 MB, 5 min TTL
+        this.cache = new CacheMemoire(); // Cache par défaut : 100 entrées, 50 MB, 5 min TTL
+        this.gestionSession = new GestionSession(); // Timeout par défaut : 30 minutes
     }
     
     // Demarre le serveur et ecoute les connexions entrantes
@@ -31,7 +33,7 @@ public class HttpServer {
             while (true) {
                 Socket socketClient = socketServeur.accept();
                 System.out.println("Nouvelle connexion: " + socketClient.getInetAddress().getHostAddress());
-                ClientHandler gestionnaire = new ClientHandler(socketClient, racineDocuments, journaliseur, cache);
+                ClientHandler gestionnaire = new ClientHandler(socketClient, racineDocuments, journaliseur, cache, gestionSession);
                 Thread thread = new Thread(gestionnaire);
                 thread.start();
             }
@@ -69,6 +71,11 @@ public class HttpServer {
         System.out.println("Cache vidÃ©.");
     }
     
+    // Retourne l'instance de gestion de session
+    public GestionSession getGestionSession() {
+        return gestionSession;
+    }
+
     // Retourne l'instance du cache
     public CacheMemoire getCache() {
         return cache;
@@ -95,6 +102,7 @@ public class HttpServer {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\n\n========== ARRET DU SERVEUR ==========");
             serveur.afficherStatistiquesCache();
+            serveur.getGestionSession().afficherStatistiques();
         }));
         
         serveur.demarrer();

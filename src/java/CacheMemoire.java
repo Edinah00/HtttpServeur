@@ -279,7 +279,8 @@ public class CacheMemoire {
         if (total == 0) {
             return 0.0;
         }
-        return (double) nombreHits / total;
+        // return (double) nombreHits / total;
+        return (double) nombreHits * 100.0 / total;
     }
     
     public synchronized void afficherStatistiques() {
